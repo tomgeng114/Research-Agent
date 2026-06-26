@@ -6,6 +6,10 @@
 [![FastAPI](https://img.shields.io/badge/fastapi-0.110+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+## Demo
+
+![Home](home.png)
+
 ---
 
 ## Features
