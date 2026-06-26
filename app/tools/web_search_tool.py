@@ -59,19 +59,21 @@ class _TavilyClient:
         return response.json()
 
 
-def _tavily_response_to_findings(data: dict[str, Any]) -> tuple[list[str], str]:
+def _tavily_response_to_findings(
+    data: dict[str, Any],
+) -> tuple[list[str], str, list[dict[str, str]]]:
     """
     Convert Tavily API response to our standard format.
 
     Tavily returns:
       - answer: str          — AI-generated answer summary
       - results: list[dict]  — each has title, url, content, score
-      - images: list[dict]   — optional images
 
-    Returns (findings, raw_content).
+    Returns (findings, raw_content, sources).
     """
     findings: list[str] = []
     raw_parts: list[str] = []
+    sources: list[dict[str, str]] = []
 
     # 1. AI answer (highest priority)
     answer = data.get("answer", "")
@@ -90,6 +92,10 @@ def _tavily_response_to_findings(data: dict[str, Any]) -> tuple[list[str], str]:
         content = r.get("content", "")
         score = r.get("score", 0)
 
+        # Collect source
+        if title and url:
+            sources.append({"title": title, "url": url})
+
         # Build finding line
         if title:
             findings.append(f"[{title}]({url})")
@@ -103,7 +109,7 @@ def _tavily_response_to_findings(data: dict[str, Any]) -> tuple[list[str], str]:
 
     raw_content = "\n".join(raw_parts)
 
-    # Deduplicate findings
+    # Deduplicate findings and sources
     seen = set()
     unique_findings = []
     for f in findings:
@@ -111,7 +117,14 @@ def _tavily_response_to_findings(data: dict[str, Any]) -> tuple[list[str], str]:
             seen.add(f)
             unique_findings.append(f)
 
-    return unique_findings, raw_content
+    seen_urls = set()
+    unique_sources = []
+    for s in sources:
+        if s["url"] not in seen_urls:
+            seen_urls.add(s["url"])
+            unique_sources.append(s)
+
+    return unique_findings, raw_content, unique_sources
 
 
 # ── WebSearchTool ─────────────────────────────────────────────
@@ -203,6 +216,7 @@ class WebSearchTool(BaseTool):
         """
         all_findings: list[str] = []
         all_raw: list[str] = []
+        all_sources: list[dict[str, str]] = []
 
         # Determine search queries
         queries = [query]
@@ -215,9 +229,10 @@ class WebSearchTool(BaseTool):
                 search_depth="basic",
                 include_answer=True,
             )
-            findings, raw = _tavily_response_to_findings(data)
+            findings, raw, sources = _tavily_response_to_findings(data)
             all_findings.extend(findings)
             all_raw.append(raw)
+            all_sources.extend(sources)
 
         # Deduplicate findings
         seen = set()
@@ -227,15 +242,25 @@ class WebSearchTool(BaseTool):
                 seen.add(f)
                 unique_findings.append(f)
 
+        # Deduplicate sources
+        seen_urls = set()
+        unique_sources = []
+        for s in all_sources:
+            if s["url"] not in seen_urls:
+                seen_urls.add(s["url"])
+                unique_sources.append(s)
+
         logger.info(
-            "Tavily: '%s' → %d findings, %d chars raw",
-            query, len(unique_findings), sum(len(r) for r in all_raw),
+            "Tavily: '%s' → %d findings, %d sources, %d chars raw",
+            query, len(unique_findings), len(unique_sources),
+            sum(len(r) for r in all_raw),
         )
 
         return {
             "query": query,
             "findings": unique_findings,
             "raw_content": "\n\n".join(all_raw),
+            "sources": unique_sources,
         }
 
     # ── LLM fallback ────────────────────────────────────
@@ -294,6 +319,7 @@ class WebSearchTool(BaseTool):
                 "error": str(exc),
                 "findings": [],
                 "raw_content": "",
+                "sources": [],
             }
 
         # Extract key points
@@ -308,4 +334,5 @@ class WebSearchTool(BaseTool):
             "query": query,
             "findings": key_points[:15] if key_points else [],
             "raw_content": content,
+            "sources": [],
         }

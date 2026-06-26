@@ -34,13 +34,17 @@ class WriterAgent(BaseAgent):
             "Report structure requirements:\n"
             "1. Start with an Executive Summary (3-5 sentences)\n"
             "2. Organize findings into logical sections matching the research steps\n"
-            "3. Include a dedicated Conclusions section\n"
-            "4. End with actionable Recommendations\n"
-            "5. Use proper Markdown: headers, lists, bold, tables where appropriate\n"
-            "6. Be objective — present multiple perspectives\n"
-            "7. Include a 'Research Limitations' note\n"
-            "8. Write the report in the same language as the topic\n"
-            "9. Output ONLY the Markdown report — no preamble, no meta-commentary"
+            "3. For each section, include a '参考来源' subsection listing the sources "
+            "used in that section, formatted as: - [标题](URL)\n"
+            "4. Include a dedicated Conclusions section\n"
+            "5. End with actionable Recommendations\n"
+            "6. At the very end, include a '## References' section "
+            "that lists ALL sources as: - 标题：URL\n"
+            "7. Use proper Markdown: headers, lists, bold, tables where appropriate\n"
+            "8. Be objective — present multiple perspectives\n"
+            "9. Include a 'Research Limitations' note\n"
+            "10. Write the report in the same language as the topic\n"
+            "11. Output ONLY the Markdown report — no preamble, no meta-commentary"
         )
 
     def run(
@@ -72,6 +76,7 @@ class WriterAgent(BaseAgent):
 
         # Add research findings
         context_parts.append("\n## Research Findings\n")
+        all_sources: list[dict[str, str]] = []
         for note in notes:
             context_parts.append(f"\n### Step {note['step']}: {note['title']}")
             context_parts.append(f"**Search Query**: {note['query']}\n")
@@ -87,6 +92,15 @@ class WriterAgent(BaseAgent):
                     context_parts.append(f"- {f}")
                 context_parts.append("")
 
+            # Include sources for this step
+            step_sources = note.get("sources", [])
+            if step_sources:
+                context_parts.append("**Sources for this step:**\n")
+                for s in step_sources:
+                    context_parts.append(f"- [{s['title']}]({s['url']})")
+                    all_sources.append(s)
+                context_parts.append("")
+
             raw = note.get("raw_content", "")
             if raw:
                 # Include full raw content but truncate if extremely long
@@ -96,17 +110,27 @@ class WriterAgent(BaseAgent):
 
         context = "\n".join(context_parts)
 
+        # Build References list for the end of the report
+        refs_text = ""
+        if all_sources:
+            refs_text = "\n\n## All Sources (for References section)\n"
+            for s in all_sources:
+                refs_text += f"- {s['title']}：{s['url']}\n"
+
         user_message = (
             f"Using the research findings below, write a professional research report "
             f"on the topic: **{topic}**\n\n"
             f"The report must include:\n"
             f"1. Executive Summary\n"
-            f"2. Sections corresponding to each research step\n"
+            f"2. Sections corresponding to each research step — each section "
+            f"must end with '参考来源' listing the sources used\n"
             f"3. Key Data & Statistics section (if applicable)\n"
             f"4. Conclusions\n"
             f"5. Recommendations\n"
-            f"6. Research Limitations\n\n"
+            f"6. Research Limitations\n"
+            f"7. A '## References' section at the very end listing ALL reference sources\n\n"
             f"Research data:\n\n{context}"
+            f"{refs_text}"
         )
 
         for attempt in range(2):
@@ -149,6 +173,7 @@ class WriterAgent(BaseAgent):
             "",
         ]
 
+        all_sources: list[dict[str, str]] = []
         for note in notes:
             step_label = note.get("title") or f"Step {note.get('step')}"
             lines.append(f"## {step_label}")
@@ -161,6 +186,14 @@ class WriterAgent(BaseAgent):
                 raw = note.get("raw_content", "")
                 if raw:
                     lines.append(raw[:1000])
+            # Add sources for this step
+            step_sources = note.get("sources", [])
+            if step_sources:
+                lines.append("")
+                lines.append("参考来源：")
+                for s in step_sources:
+                    lines.append(f"- [{s['title']}]({s['url']})")
+                    all_sources.append(s)
             lines.append("")
 
         lines.extend([
@@ -179,6 +212,18 @@ class WriterAgent(BaseAgent):
             "",
             "- This report was generated with automated tool fallback (LLM unavailable)",
             f"- Research conducted at a single point in time",
+            "",
         ])
+
+        # References
+        if all_sources:
+            seen = set()
+            lines.append("## References")
+            lines.append("")
+            for s in all_sources:
+                if s["url"] not in seen:
+                    seen.add(s["url"])
+                    lines.append(f"- {s['title']}：{s['url']}")
+            lines.append("")
 
         return "\n".join(lines)

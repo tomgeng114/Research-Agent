@@ -150,6 +150,7 @@ async def research_stream(topic: str, max_steps: int = 4) -> StreamingResponse:
                             "title": title,
                             "findings_count": len(step_notes[0].get("findings", [])),
                             "content_length": len(step_notes[0].get("raw_content", "")),
+                            "sources_count": len(step_notes[0].get("sources", [])),
                         },
                     })
             except Exception as e:

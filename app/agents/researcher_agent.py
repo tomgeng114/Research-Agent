@@ -98,6 +98,7 @@ class ResearcherAgent(BaseAgent):
                 "focus_areas": focus_areas,
                 "findings": search_result.get("findings", []),
                 "raw_content": search_result.get("raw_content", ""),
+                "sources": search_result.get("sources", []),
                 "error": search_result.get("error"),
             }
 
