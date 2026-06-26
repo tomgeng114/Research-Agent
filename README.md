@@ -1,175 +1,181 @@
 # Research-Agent
 
-**多智能体协作研究系统** — 输入主题，自动完成：任务规划 → 信息收集 → 报告生成。
+> A multi-agent collaborative research system that turns a single topic into a structured report — planning, real web search, and writing, all in one pipeline.
 
-```
-http://127.0.0.1:8001
-```
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/fastapi-0.110+-green.svg)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 项目结构
+## Features
+
+- **Multi-Agent Architecture** — Planner, Researcher, and Writer agents collaborate in a typed pipeline, each with a dedicated role
+- **Real Web Search (Tavily)** — Not simulated. Integrates [Tavily Search API](https://tavily.com) for live web results with automatic LLM fallback
+- **SSE Streaming** — Real-time progress pushed to the browser: planning → researching → writing → done
+- **Long-Term Memory (SQLite)** — Every research session is persisted and searchable; historical context enhances future queries
+- **Tool-Calling Design** — Agents use OpenAI-compatible function calling to select and invoke tools
+- **Clean Web UI** — Built with vanilla HTML/CSS/JS + `marked.js` for instant markdown rendering
+
+## Architecture
+
+```
+User Input (topic)
+       │
+       ▼
+┌─────────────────┐
+│  PlannerAgent    │  Decomposes topic into sequential research steps
+│  (LLM-powered)   │  Output: [{step, title, query, focus_areas}, ...]
+└────────┬────────┘
+         │ plan
+         ▼
+┌─────────────────┐
+│ ResearcherAgent  │  Executes each step via tool calling
+│  (Tool invoker)  │  ┌──────────────────────────┐
+│                  │  │ WebSearchTool             │
+│                  │  │  ├─ Tavily API (primary)  │
+│                  │  │  └─ LLM (fallback)        │
+│                  │  └──────────────────────────┘
+└────────┬────────┘  Output: [{step, findings, raw_content}, ...]
+         │ notes
+         ▼
+┌─────────────────┐
+│  WriterAgent     │  Synthesizes findings into a structured Markdown report
+│  (LLM-powered)   │  Output: full report string
+└────────┬────────┘
+         │ report
+         ▼
+┌─────────────────┐     ┌──────────────────┐
+│   ReportTool     │     │  MemoryManager    │
+│   Save to disk   │     │  SQLite persist   │
+└─────────────────┘     └──────────────────┘
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Framework | FastAPI (async) |
+| LLM | DeepSeek / OpenAI (switchable via env) |
+| Real Search | Tavily Search API |
+| Streaming | Server-Sent Events (SSE) |
+| Database | SQLite |
+| Frontend | HTML/CSS/JS + marked.js |
+| Python | 3.10+ |
+
+## Quick Start
+
+```bash
+# 1. Clone
+git clone <repo-url> && cd Research-Agent
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure API keys
+cp .env.example .env
+# Edit .env — add your DeepSeek and Tavily keys
+
+# 4. Initialize database
+python init_db.py
+
+# 5. Start
+uvicorn app.main:app --app-dir . --host 127.0.0.1 --port 8001
+
+# 6. Open
+# http://127.0.0.1:8001
+```
+
+## API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Web UI |
+| `GET` | `/api/research/stream?topic=...&max_steps=4` | SSE streaming research |
+| `POST` | `/api/research` | Synchronous research (JSON) |
+| `GET` | `/api/history` | List past sessions |
+| `GET` | `/api/research/{id}` | Get session detail |
+| `DELETE` | `/api/research/{id}` | Delete session |
+| `GET` | `/health` | Health check |
+
+### Example: Streaming Research
+
+```bash
+curl -N "http://127.0.0.1:8001/api/research/stream?topic=AI%20Agent%20trends&max_steps=3"
+```
+
+SSE events:
+```
+data: {"phase":"planning","message":"正在分析研究主题..."}
+data: {"phase":"plan_done","plan":[...]}
+data: {"phase":"researching","message":"正在执行第 1/3 步: ..."}
+data: {"phase":"step_done","step":{...}}
+data: {"phase":"writing","message":"正在撰写报告..."}
+data: {"phase":"done","result":{"report":"...","id":1}}
+```
+
+## Project Structure
 
 ```
 Research-Agent/
-│
 ├── app/
-│   ├── agents/                    # 智能体模块
-│   │   ├── base_agent.py          # 基类：LLM 调用 + 工具注册
-│   │   ├── planner_agent.py       # 规划智能体：拆分研究步骤
-│   │   ├── researcher_agent.py    # 研究智能体：调用工具收集信息
-│   │   └── writer_agent.py        # 写作智能体：生成 Markdown 报告
-│   │
-│   ├── memory/
-│   │   └── memory_manager.py      # 长期记忆：SQLite 存储历史研究
-│   │
+│   ├── agents/
+│   │   ├── base_agent.py          # Base class: LLM client + tool registry
+│   │   ├── planner_agent.py       # Task decomposition agent
+│   │   ├── researcher_agent.py    # Information gathering agent
+│   │   └── writer_agent.py        # Report synthesis agent
 │   ├── tools/
-│   │   ├── base_tool.py           # 工具基类：name/description/parameters/run()
-│   │   ├── web_search_tool.py     # 搜索工具：DeepSeek 驱动的研究搜索
-│   │   └── report_tool.py         # 报告工具：保存 Markdown 到磁盘
-│   │
+│   │   ├── base_tool.py           # Abstract tool (name/desc/params/run)
+│   │   ├── web_search_tool.py     # Tavily API + LLM fallback
+│   │   └── report_tool.py         # Markdown file writer
+│   ├── memory/
+│   │   └── memory_manager.py      # SQLite CRUD + history search
 │   ├── api/
-│   │   └── routes.py              # API：SSE 流式研究 + REST 端点
-│   │
-│   ├── config.py                  # 配置：API Key、模型、路径
-│   └── main.py                    # 入口：FastAPI + Web 前端
-│
+│   │   └── routes.py              # SSE stream + REST endpoints
+│   ├── config.py                  # Env-based configuration
+│   └── main.py                    # FastAPI app + web UI
 ├── tests/
-│   └── test_agents.py             # 单元测试（13 个）
-│
-├── docs/                          # 文档
-├── reports/                       # 生成的报告（自动创建）
-│
-├── .env                           # API Key 配置
-├── .env.example                   # 配置模板
-├── init_db.py                     # 数据库初始化
-├── start.bat                      # Windows 一键启动
-├── requirements.txt               # Python 依赖
-└── README.md
+│   └── test_agents.py             # 13 unit tests
+├── reports/                       # Generated reports (auto-created)
+├── .env.example                   # Config template
+├── init_db.py                     # DB bootstrap script
+├── start.bat                      # Windows one-click launcher
+└── requirements.txt
 ```
 
----
+## Key Design Decisions
 
-## 快速开始
+### Why Multi-Agent?
 
-### 1. 配置 API Key
+A single LLM call struggles with long-form research: it skips steps, hallucinates, or produces shallow output. Splitting into three specialized agents forces structured reasoning:
 
-编辑 `.env`，填入你的 DeepSeek API Key（已配置则跳过）：
+- **Planner** is constrained to output only a JSON plan, preventing it from jumping to conclusions
+- **Researcher** processes one step at a time with real tool calls, producing grounded notes
+- **Writer** sees only the compiled research — not the raw plan — ensuring it synthesizes rather than copies
 
-```env
-DEEPSEEK_API_KEY=sk-your-key
-```
+### Why Tavily + LLM Fallback?
 
-### 2. 初始化数据库
-
-```bash
-python init_db.py
-```
-
-### 3. 启动
-
-```bash
-# Windows：双击 start.bat
-
-# 或命令行：
-uvicorn app.main:app --app-dir E:\Tom\Research-Agent --host 127.0.0.1 --port 8001
-```
-
-### 4. 打开浏览器
+Real web search provides current, verifiable information with source URLs. But APIs fail — rate limits, network issues, missing keys. The dual-path design ensures the system always works:
 
 ```
-http://127.0.0.1:8001
+WebSearchTool.run()
+  ├─ Tavily API  → findings with real URLs + source content
+  └─ LLM (catch) → knowledge-grounded findings (no URLs)
 ```
 
----
+### Why SSE over WebSocket?
 
-## 使用方式
+SSE is unidirectional (server → client), which matches the research pipeline perfectly. No bidirectional state to manage, trivial to implement, and natively supported by browsers via `EventSource`.
 
-| 方式 | 说明 |
-|------|------|
-| **Web 界面** | 打开 `http://127.0.0.1:8001`，输入主题即可，实时显示进度和报告 |
-| **API** | `POST /api/research` — 同步调用 |
-| **流式 API** | `GET /api/research/stream?topic=xxx` — SSE 实时推送 |
+## Roadmap
 
----
+- [ ] **CrewAI integration** — Replace hand-rolled agent orchestration with CrewAI for more complex multi-agent topologies
+- [ ] **Tool expansion** — ArXiv search, GitHub code search, PDF ingestion
+- [ ] **Configurable report templates** — Academic, business, technical deep-dive presets
+- [ ] **WebSocket mode** — For interactive research with mid-course correction
+- [ ] **Vector memory** — Replace keyword-based history search with embedding similarity
+- [ ] **Docker deployment** — Single-command `docker compose up`
 
-## API 端点
+## License
 
-| Method | Path | 说明 |
-|--------|------|------|
-| `GET` | `/` | Web 前端界面 |
-| `GET` | `/api/research/stream` | SSE 流式研究（实时进度） |
-| `POST` | `/api/research` | 同步研究 |
-| `GET` | `/api/history` | 历史记录列表 |
-| `GET` | `/api/research/{id}` | 查看研究详情 |
-| `DELETE` | `/api/research/{id}` | 删除研究 |
-| `GET` | `/health` | 健康检查 |
-
----
-
-## 架构设计
-
-```
-用户输入主题
-     │
-     ▼
-┌──────────────┐     ┌───────────────┐     ┌──────────────┐
-│ PlannerAgent │ ──▶ │ResearcherAgent│ ──▶ │ WriterAgent  │
-│ 分析 → 拆分   │     │ 搜索 → 收集    │     │ 汇总 → 报告   │
-└──────────────┘     └───────┬───────┘     └──────┬───────┘
-                             │                     │
-                      ┌──────┴──────┐       ┌──────┴──────┐
-                      │ WebSearch   │       │  ReportTool │
-                      │ Tool        │       │  保存 .md    │
-                      └─────────────┘       └──────┬──────┘
-                                                   │
-                                            ┌──────┴──────┐
-                                            │ MemoryManager│
-                                            │ SQLite 持久化 │
-                                            └─────────────┘
-```
-
-### 设计原则
-
-- **Tool Calling** — 标准 OpenAI function-calling 协议，每个工具定义 name/description/parameters
-- **Multi-Agent** — Planner → Researcher → Writer 三元协作，各司其职
-- **Long-Term Memory** — SQLite 存储，支持历史检索和上下文增强
-- **SSE Streaming** — 实时推送研究进度，用户可见每个阶段
-
----
-
-## 技术栈
-
-| 组件 | 技术 |
-|------|------|
-| 后端框架 | FastAPI |
-| LLM | DeepSeek API（兼容 OpenAI） |
-| 数据库 | SQLite |
-| 前端 | 原生 HTML/CSS/JS + marked.js |
-| 实时通信 | Server-Sent Events (SSE) |
-
----
-
-## 测试
-
-```bash
-python -m pytest tests/ -v
-# 或
-python -c "from tests.test_agents import *; ..."
-```
-
-当前 13 个测试全部通过。
-
----
-
-## 切换 LLM
-
-编辑 `.env`：
-
-```env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-your-openai-key
-OPENAI_MODEL=gpt-4o
-```
-
-无需改任何代码 — 所有 LLM 调用使用 OpenAI 兼容接口。
+MIT

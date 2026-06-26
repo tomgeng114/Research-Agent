@@ -81,5 +81,10 @@ class Settings:
     )
     max_research_steps: int = 5
 
+    @property
+    def tavily_api_key(self) -> str:
+        """Tavily API key for real web search (optional)."""
+        return os.getenv("TAVILY_API_KEY", "")
+
 
 settings = Settings()
